@@ -131,7 +131,9 @@ lock_create "$time_drift_lock"
 if is_modem_up; then
     while IFS= read -r file; do
         sms_handle "$file"
-    done < <(find $sms_incoming_dir -type f ! -name '*-concatenated' -printf "%T+ %p\n" | sort | cut -d ' ' -f 2-)
+    done < <(find $sms_incoming_dir \
+        -type f ! -name '*-concatenated' \
+        -exec awk '/^Sent:/ { print $2 " " $3 " " FILENAME }' {} \; | sort | cut -d ' ' -f 3-)
 fi
 
 if ((temp < WARNING_TEMP)); then
