@@ -17,14 +17,14 @@ SHUTDOWN_BAT=10
 # The time duration (in minutes) after which the router will shut down if there are no active clients.
 CLIENTS_SHUTDOWN_TIME=20
 # This value should be a bit larger than the cron schedule interval to ensure proper handling of time-based logic in the script.
-MAX_TIME_DRIFT=2
+MAX_CLOCK_DRIFT=2
 
 temperature_lock="/tmp/monitor_temp.lock"
 full_battery_lock="/tmp/monitor_full_battery.lock"
 warning_battery_lock="/tmp/monitor_warn_battery.lock"
 critical_battery_lock="/tmp/monitor_crit_battery.lock"
 client_lock="/tmp/monitor_client.lock"
-time_drift_lock="/tmp/monitor_time.lock"
+clock_drift_lock="/tmp/monitor_clock.lock"
 
 sms_incoming_dir=/etc/spool/sms/incoming
 sms_storage_dir=/etc/spool/sms/storage
@@ -38,11 +38,15 @@ sms_storage_dir=/etc/spool/sms/storage
 is_lock_stale() {
     local file_name=$1
     local stale_time=$2
-    [[ "$(($(date +%s) - $(date -r "$file_name" +%s)))" -gt $((stale_time * 60)) ]]
+    [[ $(($(date +%s) - $(date -r "$file_name" +%s))) -gt $((stale_time * 60)) ]]
 }
 
 is_lock_enabled() {
     [[ -f $1 ]]
+}
+
+is_clock_adjusted() {
+    is_lock_enabled $clock_drift_lock && is_lock_stale $clock_drift_lock $MAX_CLOCK_DRIFT
 }
 
 is_lan_up() {
@@ -53,13 +57,21 @@ is_modem_up() {
     [[ $(<"/tmp/run/mwan3track/modem_1_1_2/STATUS") == online ]]
 }
 
-is_clients_exists() {
+is_clients_exist() {
     is_lan_up || return 1
-    [[ $(grep -c 1 <(awk '{print $15}' /tmp/tertf/tertfinfo 2>/dev/null)) -gt 0 ]]
+    awk '$15 == 1 {count++} END {if (count > 0) exit 0; else exit 1}' /tmp/tertf/tertfinfo
 }
 
 is_charging() {
     [[ $charge -eq 1 ]]
+}
+
+lock_create() {
+    touch "$1"
+}
+
+lock_remove() {
+    rm -f "$1"
 }
 
 alert() {
@@ -73,14 +85,6 @@ alert() {
 
 shutdown() {
     echo "{\"poweroff\": \"1\"}" >/tmp/mcu_message && sleep 0.5 && killall -17 e750-mcu && exit 0
-}
-
-lock_create() {
-    touch "$1"
-}
-
-lock_remove() {
-    rm -f "$1"
 }
 
 escape_string() {
@@ -120,14 +124,6 @@ sms_handle() {
     alert "$(escape_string "✉️ SMS from $from: $message")" && mv "$file" $sms_storage_dir/
 }
 
-# Check if the time drift lock is enabled and if it's stale based on the $MAX_TIME_DRIFT value.
-# If the lock is stale, it means that the time has been adjusted by the NTP to a degree that could
-# cause issues with time-based logic in the script.
-if is_lock_enabled "$time_drift_lock" && is_lock_stale "$time_drift_lock" $MAX_TIME_DRIFT; then
-    lock_remove $client_lock
-fi
-lock_create "$time_drift_lock"
-
 if is_modem_up; then
     while IFS= read -r file; do
         sms_handle "$file"
@@ -157,18 +153,18 @@ elif ! is_charging; then
         shutdown
     elif ((bat <= CRITICAL_BAT)) && ! is_lock_enabled $critical_battery_lock; then
         alert "🪫 Low Battery: $bat%" && lock_create $critical_battery_lock
-    elif ((bat <= WARNING_BAT)) && ! is_lock_enabled $warning_battery_lock; then
+    elif ! is_lock_enabled $warning_battery_lock; then
         alert "🪫 Low Battery: $bat%" && lock_create $warning_battery_lock
     fi
 fi
 
-if (is_charging && is_lan_up) || is_clients_exists; then
+if is_clients_exist || is_clock_adjusted || (is_charging && is_lan_up); then
     lock_remove $client_lock
-else
-    if ! is_lock_enabled $client_lock; then
-        lock_create $client_lock
-    elif is_lock_stale $client_lock $CLIENTS_SHUTDOWN_TIME; then
-        alert "💤 No active clients for $CLIENTS_SHUTDOWN_TIME min, shutting down"
-        shutdown
-    fi
+elif ! is_lock_enabled $client_lock; then
+    lock_create $client_lock
+elif is_lock_stale $client_lock $CLIENTS_SHUTDOWN_TIME; then
+    alert "💤 No active clients for $CLIENTS_SHUTDOWN_TIME min, shutting down"
+    shutdown
 fi
+
+lock_create $clock_drift_lock
