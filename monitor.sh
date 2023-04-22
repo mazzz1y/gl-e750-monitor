@@ -50,11 +50,13 @@ is_clock_adjusted() {
 }
 
 is_lan_up() {
-    [[ $(<"/sys/class/net/br-lan/operstate") == up ]]
+    local file_name=/sys/class/net/br-lan/operstate
+    [[ -f $file_name && $(<$file_name) == up ]]
 }
 
 is_modem_up() {
-    [[ $(<"/tmp/run/mwan3track/modem_1_1_2/STATUS") == online ]]
+    local file_name=/tmp/run/mwan3track/modem_1_1_2/STATUS
+    [[ -f $file_name && $(<$file_name) == online ]]
 }
 
 is_clients_exist() {
