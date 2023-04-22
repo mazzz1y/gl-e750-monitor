@@ -14,7 +14,7 @@ It was originally created for personal use, but it may be helpful for others who
 ## Requirements
 ```bash
 opkg update
-opkg install bash findutils
+opkg install bash findutils iconv
 ```
 
 ## Usage
