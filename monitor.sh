@@ -1,39 +1,43 @@
 #!/bin/bash
+# shellcheck disable=SC2059
+#
+# opkg install bash findutils curl
+# * * * * * nice -n 19 /root/monitor.sh > /dev/null 2>&1
 
-# Check if the current script is already running or if it's being executed with the "debug" argument.
-# If the script is already running (and not in debug mode), exit to avoid running multiple instances.
 [[ "$(pidof "$(basename "$0")")" != "$$" ]] && [[ "$1" != "debug" ]] && exit
 
-# The temperature threshold (in Celsius) at which a high-temperature warning alert is triggered.
-WARNING_TEMP=60
-#  The battery percentage threshold at which a full battery alert is triggered.
-FULL_BAT=85
-# The battery percentage threshold at which a low battery warning alert is triggered.
-WARNING_BAT=25
-# The battery percentage threshold at which a critical low battery alert is triggered.
-CRITICAL_BAT=15
-# The battery percentage threshold at which the router will be shut down due to low battery.
-SHUTDOWN_BAT=10
-# The time duration (in minutes) after which the router will shut down if there are no active clients.
-CLIENTS_SHUTDOWN_TIME=20
-# This value should be a bit larger than the cron schedule interval to ensure proper handling of time-based logic in the script.
-MAX_CLOCK_DRIFT=2
+readonly WARNING_TEMP="${WARNING_TEMP:-65}"
+readonly FULL_BAT="${FULL_BAT:-85}"
+readonly WARNING_BAT="${WARNING_BAT:-25}"
+readonly CRITICAL_BAT="${CRITICAL_BAT:-15}"
+readonly SHUTDOWN_BAT="${SHUTDOWN_BAT:-10}"
+readonly CLIENTS_SHUTDOWN_TIME="${CLIENTS_SHUTDOWN_TIME:-20}"
+readonly MAX_CLOCK_DRIFT="${MAX_CLOCK_DRIFT:-2}"
+readonly ALERT_SCRIPT="${ALERT_SCRIPT:-"$(dirname "$0")/alert.sh"}"
 
-temperature_lock="/tmp/monitor_temp.lock"
-full_battery_lock="/tmp/monitor_full_battery.lock"
-warning_battery_lock="/tmp/monitor_warn_battery.lock"
-critical_battery_lock="/tmp/monitor_crit_battery.lock"
-client_lock="/tmp/monitor_client.lock"
-clock_drift_lock="/tmp/monitor_clock.lock"
+readonly TEMP_LOCK="/tmp/monitor_temp.lock"
+readonly FULL_BAT_LOCK="/tmp/monitor_full_battery.lock"
+readonly WARN_BAT_LOCK="/tmp/monitor_warn_battery.lock"
+readonly CRIT_BAT_LOCK="/tmp/monitor_crit_battery.lock"
+readonly CLIENT_LOCK="/tmp/monitor_client.lock"
+readonly CLOCK_DRIFT_LOCK="/tmp/monitor_clock.lock"
 
-sms_incoming_dir=/etc/spool/sms/incoming
-sms_storage_dir=/etc/spool/sms/storage
+readonly SMS_IN_DIR="/etc/spool/sms/incoming"
+readonly SMS_STORAGE_DIR="/etc/spool/sms/storage"
+
+readonly MSG_LOW_BAT="🪫 Low Battery: %d%%"
+readonly MSG_LOW_BAT_SHUTDOWN="🪫 Low Battery: %d%%, shutting down"
+readonly MSG_FULL_BAT="🔋 Full Battery: %d%%"
+readonly MSG_HIGH_TEMP="🌡 High Temperature: %d°C"
+readonly MSG_CLIENTS_SHUTDOWN="💤 No active clients for %d min, shutting down"
+readonly MSG_NEW_SMS="✉️ SMS from %s: %s"
 
 {
-    read -r temp
-    read -r bat
-    read -r charge
+    read -r TEMP
+    read -r BAT
+    read -r CHARGE
 } < <(jsonfilter -i /tmp/mcu_data -e '@.T' -e '@.P' -e '@.C' | cut -d '.' -f 1)
+readonly TEMP BAT CHARGE
 
 is_lock_stale() {
     local file_name=$1
@@ -46,7 +50,7 @@ is_lock_enabled() {
 }
 
 is_clock_adjusted() {
-    is_lock_enabled $clock_drift_lock && is_lock_stale $clock_drift_lock $MAX_CLOCK_DRIFT
+    is_lock_enabled "$CLOCK_DRIFT_LOCK" && is_lock_stale "$CLOCK_DRIFT_LOCK" "$MAX_CLOCK_DRIFT"
 }
 
 is_lan_up() {
@@ -65,7 +69,7 @@ is_clients_exist() {
 }
 
 is_charging() {
-    [[ $charge -eq 1 ]]
+    [[ $CHARGE -eq 1 ]]
 }
 
 lock_create() {
@@ -78,31 +82,11 @@ lock_remove() {
 
 alert() {
     ! is_modem_up && return 1
-    # Replace this comment with your alert script.
-    ## Example: Sending an alert using curl with a custom webhook URL
-    ## message="$1"
-    ## webhook_url="https://your-webhook-url.com"
-    ## curl -X POST -H 'Content-Type: application/json' -d '{"text": "'"${message}"'"}' "$webhook_url"
+    $ALERT_SCRIPT "$(printf "$@" | sed -e 's/[[:cntrl:]]//g')"
 }
 
 shutdown() {
     echo "{\"poweroff\": \"1\"}" >/tmp/mcu_message && sleep 0.5 && killall -17 e750-mcu && exit 0
-}
-
-escape_string() {
-    local msg="$1"
-    # remove hidden symbols
-    msg="$(echo -e "$msg" | sed -e 's/[[:cntrl:]]//g')"
-    # json escape
-    msg="${msg//\\/\\\\}"
-    msg="${msg//\"/\\\"}"
-    msg="${msg//$'\n'/\\n}"
-    msg="${msg//$'\t'/\\t}"
-    msg="${msg//$'\r'/\\r}"
-    msg="${msg//$'\f'/\\f}"
-    # markdown escape
-    msg="${msg//\*/\\\\*}"
-    echo "$msg"
 }
 
 sms_handle() {
@@ -123,50 +107,51 @@ sms_handle() {
         message="⚠️ Unknown encoding: $encoding"
         ;;
     esac
-    alert "$(escape_string "✉️ SMS from $from: $message")" && mv "$file" $sms_storage_dir/
+
+    alert "$MSG_NEW_SMS" "$from" "$message" && mv "$file" $SMS_STORAGE_DIR/
 }
 
 if is_modem_up; then
     while IFS= read -r file; do
         sms_handle "$file"
-    done < <(find $sms_incoming_dir \
+    done < <(find $SMS_IN_DIR \
         -type f ! -name '*-concatenated' \
         -exec awk '/^Sent:/ { print $2 " " $3 " " FILENAME }' {} \; | sort | cut -d ' ' -f 3-)
 fi
 
-if ((temp < WARNING_TEMP)); then
-    lock_remove $temperature_lock
-elif ! is_lock_enabled $temperature_lock; then
-    alert "🌡 High Temperature: $temp°C" && lock_create $temperature_lock
+if ((TEMP < WARNING_TEMP)); then
+    lock_remove $TEMP_LOCK
+elif ! is_lock_enabled $TEMP_LOCK; then
+    alert "$MSG_HIGH_TEMP" "$TEMP" && lock_create $TEMP_LOCK
 fi
 
-if ((bat < FULL_BAT)); then
-    lock_remove $full_battery_lock
-elif is_charging && ! is_lock_enabled $full_battery_lock; then
-    alert "🔋 Full Battery: $bat%" && lock_create $full_battery_lock
+if ((BAT < FULL_BAT)); then
+    lock_remove $FULL_BAT_LOCK
+elif is_charging && ! is_lock_enabled $FULL_BAT_LOCK; then
+    alert "$MSG_FULL_BAT" "$BAT" && lock_create $FULL_BAT_LOCK
 fi
 
-if ((bat > WARNING_BAT)) || is_charging; then
-    lock_remove $critical_battery_lock
-    lock_remove $warning_battery_lock
+if ((BAT > WARNING_BAT)) || is_charging; then
+    lock_remove $CRIT_BAT_LOCK
+    lock_remove $WARN_BAT_LOCK
 elif ! is_charging; then
-    if ((bat <= SHUTDOWN_BAT)); then
-        alert "🪫 Low Battery: $bat%, shutting down"
+    if ((BAT <= SHUTDOWN_BAT)); then
+        alert "$MSG_LOW_BAT_SHUTDOWN" "$BAT"
         shutdown
-    elif ((bat <= CRITICAL_BAT)) && ! is_lock_enabled $critical_battery_lock; then
-        alert "🪫 Low Battery: $bat%" && lock_create $critical_battery_lock
-    elif ! is_lock_enabled $warning_battery_lock; then
-        alert "🪫 Low Battery: $bat%" && lock_create $warning_battery_lock
+    elif ((BAT <= CRITICAL_BAT)) && ! is_lock_enabled $CRIT_BAT_LOCK; then
+        alert "$MSG_LOW_BAT" "$BAT" && lock_create $CRIT_BAT_LOCK
+    elif ! is_lock_enabled $WARN_BAT_LOCK; then
+        alert "$MSG_LOW_BAT" "$BAT" && lock_create $WARN_BAT_LOCK
     fi
 fi
 
 if is_clients_exist || is_clock_adjusted || (is_charging && is_lan_up); then
-    lock_remove $client_lock
-elif ! is_lock_enabled $client_lock; then
-    lock_create $client_lock
-elif is_lock_stale $client_lock $CLIENTS_SHUTDOWN_TIME; then
-    alert "💤 No active clients for $CLIENTS_SHUTDOWN_TIME min, shutting down"
+    lock_remove $CLIENT_LOCK
+elif ! is_lock_enabled $CLIENT_LOCK; then
+    lock_create $CLIENT_LOCK
+elif is_lock_stale $CLIENT_LOCK "$CLIENTS_SHUTDOWN_TIME"; then
+    alert "$MSG_CLIENTS_SHUTDOWN" "$CLIENTS_SHUTDOWN_TIME"
     shutdown
 fi
 
-lock_create $clock_drift_lock
+lock_create $CLOCK_DRIFT_LOCK
