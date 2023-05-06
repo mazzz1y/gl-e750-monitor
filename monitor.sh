@@ -1,8 +1,5 @@
 #!/bin/bash
 # shellcheck disable=SC2059
-#
-# opkg install bash findutils curl
-# * * * * * nice -n 19 /root/monitor.sh > /dev/null 2>&1
 
 [[ "$(pidof "$(basename "$0")")" != "$$" ]] && [[ "$1" != "debug" ]] && exit
 
@@ -30,7 +27,7 @@ readonly MSG_LOW_BAT_SHUTDOWN="🪫 Low Battery: %d%%, shutting down"
 readonly MSG_FULL_BAT="🔋 Full Battery: %d%%"
 readonly MSG_HIGH_TEMP="🌡 High Temperature: %d°C"
 readonly MSG_CLIENTS_SHUTDOWN="💤 No active clients for %d min, shutting down"
-readonly MSG_NEW_SMS="✉️ SMS from %s: %s"
+readonly MSG_NEW_SMS="✉️ SMS from %s:\n%s"
 
 {
     read -r TEMP
