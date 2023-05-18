@@ -27,7 +27,7 @@ readonly MSG_LOW_BAT_SHUTDOWN="🪫 Low Battery: %d%%, shutting down"
 readonly MSG_FULL_BAT="🔋 Full Battery: %d%%"
 readonly MSG_HIGH_TEMP="🌡 High Temperature: %d°C"
 readonly MSG_CLIENTS_SHUTDOWN="💤 No active clients for %d min, shutting down"
-readonly MSG_NEW_SMS="✉️ SMS from %s:\n%s"
+readonly MSG_NEW_SMS="✉️ %s: %s"
 
 {
     read -r TEMP
