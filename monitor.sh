@@ -11,6 +11,7 @@ readonly SHUTDOWN_BAT="${SHUTDOWN_BAT:-10}"
 readonly CLIENTS_SHUTDOWN_TIME="${CLIENTS_SHUTDOWN_TIME:-20}"
 readonly MAX_CLOCK_DRIFT="${MAX_CLOCK_DRIFT:-2}"
 readonly ALERT_SCRIPT="${ALERT_SCRIPT:-"$(dirname "$0")/alert.sh"}"
+readonly TX_POWER_ON_AC="${TX_POWER_ON_AC:-20}"
 
 readonly TEMP_LOCK="/tmp/monitor_temp.lock"
 readonly FULL_BAT_LOCK="/tmp/monitor_full_battery.lock"
@@ -18,6 +19,7 @@ readonly WARN_BAT_LOCK="/tmp/monitor_warn_battery.lock"
 readonly CRIT_BAT_LOCK="/tmp/monitor_crit_battery.lock"
 readonly CLIENT_LOCK="/tmp/monitor_client.lock"
 readonly CLOCK_DRIFT_LOCK="/tmp/monitor_clock.lock"
+readonly TX_POWER_LOCK="/tmp/txpower-%s.lock"
 
 readonly SMS_IN_DIR="/etc/spool/sms/incoming"
 readonly SMS_STORAGE_DIR="/etc/spool/sms/storage"
@@ -42,12 +44,8 @@ is_lock_stale() {
     [[ $(($(date +%s) - $(date -r "$file_name" +%s))) -gt $((stale_time * 60)) ]]
 }
 
-is_lock_enabled() {
-    [[ -f $1 ]]
-}
-
 is_clock_adjusted() {
-    is_lock_enabled "$CLOCK_DRIFT_LOCK" && is_lock_stale "$CLOCK_DRIFT_LOCK" "$MAX_CLOCK_DRIFT"
+    [[ -f $CLOCK_DRIFT_LOCK ]] && is_lock_stale "$CLOCK_DRIFT_LOCK" "$MAX_CLOCK_DRIFT"
 }
 
 is_lan_up() {
@@ -69,12 +67,16 @@ is_charging() {
     [[ $CHARGE -eq 1 ]]
 }
 
-lock_create() {
-    touch "$1"
+get_current_txpower() {
+    iwinfo "$1" info | grep 'Tx-Power' | awk '{print $2}'
 }
 
-lock_remove() {
-    rm -f "$1"
+get_wlan_interfaces() {
+    for interface in /sys/class/net/wlan*; do
+        if [[ -d "$interface" ]]; then
+            basename "$interface"
+        fi
+    done
 }
 
 alert() {
@@ -108,6 +110,22 @@ sms_handle() {
     alert "$MSG_NEW_SMS" "$from" "$message" && mv "$file" $SMS_STORAGE_DIR/
 }
 
+if [[ -n "$TX_POWER_ON_AC" ]]; then
+    for interface in $(get_wlan_interfaces); do
+        tx_power_lock="$(printf $TX_POWER_LOCK "$interface")"
+        if is_charging && [[ ! -f $tx_power_lock ]]; then
+            current_txpower=$(get_current_txpower "$interface")
+            echo "$current_txpower" > "$tx_power_lock"
+            if [[ "$TX_POWER_ON_AC" != "$current_txpower" ]]; then
+              iw dev "$interface" set txpower fixed "$TX_POWER_ON_AC"00
+            fi
+        elif ! is_charging && [[ -f $tx_power_lock ]] ; then
+            iw dev "$interface" set txpower fixed "$(cat "$tx_power_lock")"00
+            rm -f "$tx_power_lock"
+        fi
+    done
+fi
+
 if is_modem_up; then
     while IFS= read -r file; do
         sms_handle "$file"
@@ -117,38 +135,38 @@ if is_modem_up; then
 fi
 
 if ((TEMP < WARNING_TEMP)); then
-    lock_remove $TEMP_LOCK
-elif ! is_lock_enabled $TEMP_LOCK; then
-    alert "$MSG_HIGH_TEMP" "$TEMP" && lock_create $TEMP_LOCK
+    rm -f $TEMP_LOCK
+elif [[ ! -f $TEMP_LOCK ]]; then
+    alert "$MSG_HIGH_TEMP" "$TEMP" && touch $TEMP_LOCK
 fi
 
 if ((BAT < FULL_BAT)); then
-    lock_remove $FULL_BAT_LOCK
-elif is_charging && ! is_lock_enabled $FULL_BAT_LOCK; then
-    alert "$MSG_FULL_BAT" "$BAT" && lock_create $FULL_BAT_LOCK
+    rm -f $FULL_BAT_LOCK
+elif is_charging && [[ ! -f $FULL_BAT_LOCK ]]; then
+    alert "$MSG_FULL_BAT" "$BAT" && touch $FULL_BAT_LOCK
 fi
 
 if ((BAT > WARNING_BAT)) || is_charging; then
-    lock_remove $CRIT_BAT_LOCK
-    lock_remove $WARN_BAT_LOCK
+    rm -f $CRIT_BAT_LOCK
+    rm -f $WARN_BAT_LOCK
 elif ! is_charging; then
     if ((BAT <= SHUTDOWN_BAT)); then
         alert "$MSG_LOW_BAT_SHUTDOWN" "$BAT"
         shutdown
-    elif ((BAT <= CRITICAL_BAT)) && ! is_lock_enabled $CRIT_BAT_LOCK; then
-        alert "$MSG_LOW_BAT" "$BAT" && lock_create $CRIT_BAT_LOCK
-    elif ! is_lock_enabled $WARN_BAT_LOCK; then
-        alert "$MSG_LOW_BAT" "$BAT" && lock_create $WARN_BAT_LOCK
+    elif ((BAT <= CRITICAL_BAT)) && [[ ! -f $CRIT_BAT_LOCK ]]; then
+        alert "$MSG_LOW_BAT" "$BAT" && touch $CRIT_BAT_LOCK
+    elif [[ ! -f $WARN_BAT_LOCK ]]; then
+        alert "$MSG_LOW_BAT" "$BAT" && touch $WARN_BAT_LOCK
     fi
 fi
 
 if is_clients_exist || is_clock_adjusted || (is_charging && is_lan_up); then
-    lock_remove $CLIENT_LOCK
-elif ! is_lock_enabled $CLIENT_LOCK; then
-    lock_create $CLIENT_LOCK
+    rm -f $CLIENT_LOCK
+elif [[ ! -f $CLIENT_LOCK ]]; then
+    touch $CLIENT_LOCK
 elif is_lock_stale $CLIENT_LOCK "$CLIENTS_SHUTDOWN_TIME"; then
     alert "$MSG_CLIENTS_SHUTDOWN" "$CLIENTS_SHUTDOWN_TIME"
     shutdown
 fi
 
-lock_create $CLOCK_DRIFT_LOCK
+touch $CLOCK_DRIFT_LOCK

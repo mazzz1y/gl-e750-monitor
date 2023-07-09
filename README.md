@@ -30,6 +30,7 @@ opkg install bash findutils iconv
 | `SHUTDOWN_BAT`         | `10`          | Battery level threshold (in percentage) for shutdown    |
 | `CLIENTS_SHUTDOWN_TIME`| `20`          | Time (in minutes) before shutdown when battery level is at `SHUTDOWN_BAT`  |
 | `MAX_CLOCK_DRIFT`      | `2`           | Maximum allowed clock drift (in minutes), if the clock has changed by more than the value specified in the variable, the time-based alerts will be reset |
+| `TX_POWER_ON_AC`       | `20` | Set custom Wi-Fi transmission power while charging(dBm) |
 | `ALERT_SCRIPT`         | `$(dirname "$0")/alert.sh` | Path to the script that sends alert messages  |
 
 To use this script, follow these steps:
