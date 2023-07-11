@@ -49,13 +49,15 @@ is_clock_adjusted() {
 }
 
 is_lan_up() {
-    local file_name=/sys/class/net/br-lan/operstate
-    [[ -f $file_name && $(<$file_name) == up ]]
+    local file=/sys/class/net/br-lan/operstate
+    [[ -f $file && $(<$file) == up ]]
 }
 
-is_modem_up() {
-    local file_name=/tmp/run/mwan3track/modem_1_1_2/STATUS
-    [[ -f $file_name && $(<$file_name) == online ]]
+is_connected() {
+    for file in /tmp/run/mwan3track/*/STATUS; do
+        [[ $(<"$file") == online ]] && return 0
+    done
+    return 1
 }
 
 is_clients_exist() {
@@ -80,7 +82,7 @@ get_wlan_interfaces() {
 }
 
 alert() {
-    ! is_modem_up && return 1
+    ! is_connected && return 1
     $ALERT_SCRIPT "$(printf "$@" | sed -e 's/[[:cntrl:]]//g')"
 }
 
@@ -126,7 +128,7 @@ if [[ -n "$TX_POWER_ON_AC" ]]; then
     done
 fi
 
-if is_modem_up; then
+if is_connected; then
     while IFS= read -r file; do
         sms_handle "$file"
     done < <(find $SMS_IN_DIR \
