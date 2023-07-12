@@ -10,6 +10,7 @@ It was originally created for personal use, but it may be helpful for others who
 2. Temperature alerting
 3. Battery level alerting
 4. Shutdown router when there are no clients for a specified time
+5. Set custom Wi-Fi transmission power while charging
 
 ## Requirements
 ```bash
