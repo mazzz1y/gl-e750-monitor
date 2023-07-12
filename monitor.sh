@@ -54,6 +54,7 @@ is_lan_up() {
 }
 
 is_connected() {
+    local file
     for file in /tmp/run/mwan3track/*/STATUS; do
         [[ $(<"$file") == online ]] && return 0
     done
