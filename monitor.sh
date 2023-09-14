@@ -75,6 +75,7 @@ get_current_txpower() {
 }
 
 get_wlan_interfaces() {
+    local interface
     for interface in /sys/class/net/wlan*; do
         if [[ -d "$interface" ]]; then
             basename "$interface"
@@ -130,8 +131,8 @@ if [[ -n "$TX_POWER_ON_AC" ]]; then
 fi
 
 if is_connected; then
-    while IFS= read -r file; do
-        sms_handle "$file"
+    while IFS= read -r sms_file; do
+        sms_handle "$sms_file"
     done < <(find $SMS_IN_DIR \
         -type f ! -name '*-concatenated' \
         -exec awk '/^Sent:/ { print $2 " " $3 " " FILENAME }' {} \; | sort | cut -d ' ' -f 3-)
