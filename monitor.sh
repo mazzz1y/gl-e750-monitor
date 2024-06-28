@@ -101,7 +101,7 @@ sms_handle() {
     from=$(grep "From:" "$file" | cut -d ' ' -f 2-)
     case $encoding in
     "UCS2")
-        message=$(sed '1,/^$/d' "$file" | iconv -f UCS-2 2>/dev/null || echo "⚠️ Parse error")
+        message=$(sed '1,/^$/d' "$file" | iconv -f UTF-16BE -t UTF-8 2>/dev/null || echo "⚠️ Parse error")
         ;;
     "UTF-8")
         message=$(sed '1,/^$/d' "$file")
