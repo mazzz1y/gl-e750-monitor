@@ -1,5 +1,7 @@
 # gl-e750-monitor
 
+*This script is written for and compatible with firmware version 3. and will probably not work with newer versions*
+
 This script is designed for GL-Inet Mudi E750 LTE Router.
 
 It was originally created for personal use, but it may be helpful for others who want to customize their router's behavior.
